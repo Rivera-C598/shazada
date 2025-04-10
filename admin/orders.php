@@ -13,59 +13,17 @@ $show_delivered = isset($_GET['show_delivered']) && $_GET['show_delivered'] == '
 
 // Fetch orders based on the filter
 if ($show_delivered) {
-    $stmt = $conn->query("SELECT orders.*, users.username, products.name AS product_name FROM orders 
+    $stmt = $conn->query("SELECT orders.*, users.username FROM orders 
                           JOIN users ON orders.user_id = users.user_id 
-                          JOIN products ON orders.product_id = products.product_id 
                           WHERE orders.status = 'Delivered'
                           ORDER BY orders.created_at DESC");
 } else {
-    $stmt = $conn->query("SELECT orders.*, users.username, products.name AS product_name FROM orders 
+    $stmt = $conn->query("SELECT orders.*, users.username FROM orders 
                           JOIN users ON orders.user_id = users.user_id 
-                          JOIN products ON orders.product_id = products.product_id 
                           WHERE orders.status != 'Delivered'
                           ORDER BY orders.created_at DESC");
 }
 $orders = $stmt->fetchAll();
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_status'])) {
-    $order_id = $_POST['order_id'];
-    $status = $_POST['status'];
-
-    // Update order status and set updated_at timestamp
-    $stmt = $conn->prepare("UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?");
-    $stmt->execute([$status, $order_id]);
-
-    // Fetch order details for email notification
-    $stmt = $conn->prepare("SELECT orders.*, users.email FROM orders 
-                            JOIN users ON orders.user_id = users.user_id 
-                            WHERE order_id = ?");
-    $stmt->execute([$order_id]);
-    $order = $stmt->fetch();
-
-    // Send email notifications (same as before)
-    if ($status == 'To be packed' || $status == 'Paid') {
-        $subject = "Order Confirmation";
-        $message = "Your order (#$order_id) has been confirmed. Status: $status.";
-        // mail($order['email'], $subject, $message); // Uncomment to send real emails
-    } elseif ($status == 'Delivered') {
-        $subject = "Order Delivered";
-        $message = "Your order (#$order_id) has been delivered. Thank you for shopping with Shazada.com!";
-        // mail($order['email'], $subject, $message); // Uncomment to send real emails
-    }
-
-    // Record transaction if applicable (same as before)
-    if ($status == 'Paid' && $order['payment_method'] == 'Online Payment') {
-        $stmt = $conn->prepare("INSERT INTO transactions (order_id, amount, payment_method, status) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$order_id, $order['total_price'], $order['payment_method'], 'Paid']);
-    } elseif ($status == 'Delivered' && $order['payment_method'] == 'COD') {
-        $stmt = $conn->prepare("INSERT INTO transactions (order_id, amount, payment_method, status) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$order_id, $order['total_price'], $order['payment_method'], 'Paid']);
-    }
-
-    // Redirect to the same page to refresh the data
-    header("Location: orders.php");
-    exit();
-}
 ?>
 
 <!DOCTYPE html>
@@ -74,7 +32,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_status'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Orders - Shazada.com</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .clickable-row {
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -122,97 +85,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_status'])) {
                 <tr>
                     <th>Order ID</th>
                     <th>Customer</th>
-                    <th>Product</th>
-                    <th>Quantity</th>
                     <th>Total Price</th>
                     <th>Payment Method</th>
                     <th>Status</th>
                     <th>Order Date</th>
                     <th>Updated At</th>
-                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($orders as $order): ?>
-                    <tr>
+                    <tr class="clickable-row" onclick="window.location.href='order_details.php?order_id=<?php echo $order['order_id']; ?>'">
                         <td><?php echo $order['order_id']; ?></td>
                         <td><?php echo htmlspecialchars($order['username']); ?></td>
-                        <td><?php echo htmlspecialchars($order['product_name']); ?></td>
-                        <td><?php echo $order['quantity']; ?></td>
                         <td>₱<?php echo number_format($order['total_price'], 2); ?></td>
                         <td><?php echo $order['payment_method']; ?></td>
                         <td><?php echo $order['status']; ?></td>
                         <td><?php echo date('M d, Y h:i A', strtotime($order['created_at'])); ?></td>
                         <td><?php echo date('M d, Y h:i A', strtotime($order['updated_at'])); ?></td>
-                        <td>
-                            <?php if ($order['status'] != 'Delivered'): ?>
-                                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#updateStatusModal<?php echo $order['order_id']; ?>">
-                                    Update Status
-                                </button>
-                            <?php endif; ?>
-                        </td>
                     </tr>
-
-                    <!-- Update Status Modal -->
-                    <div class="modal fade" id="updateStatusModal<?php echo $order['order_id']; ?>" tabindex="-1" aria-labelledby="updateStatusModalLabel" aria-hidden="true">
-                        <div class="modal-dialog">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title" id="updateStatusModalLabel">Update Order Status</h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <form method="POST">
-                                        <input type="hidden" name="order_id" value="<?php echo $order['order_id']; ?>">
-                                        <div class="mb-3">
-                                            <label for="status" class="form-label">Status</label>
-                                            <select class="form-select" id="status" name="status" required>
-                                                <?php
-                                                $status_options = [];
-                                                if ($order['payment_method'] == 'COD') {
-                                                    $status_options = [
-                                                        'To be packed',
-                                                        'Packed and Shipped',
-                                                        'Received by Logistics',
-                                                        'Out for Delivery',
-                                                        'Delivered'
-                                                    ];
-                                                } else {
-                                                    $status_options = [
-                                                        'Paid',
-                                                        'To be packed',
-                                                        'Packed and Shipped',
-                                                        'Received by Logistics',
-                                                        'Out for Delivery',
-                                                        'Delivered'
-                                                    ];
-                                                }
-
-                                                // Determine the current status index
-                                                $current_status_index = array_search($order['status'], $status_options);
-
-                                                // Display only the next and previous status options
-                                                if ($current_status_index > 0) {
-                                                    echo '<option value="' . $status_options[$current_status_index - 1] . '">' . $status_options[$current_status_index - 1] . '</option>';
-                                                }
-                                                echo '<option value="' . $status_options[$current_status_index] . '" selected>' . $status_options[$current_status_index] . '</option>';
-                                                if ($current_status_index < count($status_options) - 1) {
-                                                    echo '<option value="' . $status_options[$current_status_index + 1] . '">' . $status_options[$current_status_index + 1] . '</option>';
-                                                }
-                                                ?>
-                                            </select>
-                                        </div>
-                                        <button type="submit" name="update_status" class="btn btn-primary">Update</button>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 <?php endforeach; ?>
             </tbody>
         </table>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

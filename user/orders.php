@@ -10,17 +10,21 @@ if (!isset($_SESSION['user_id']) || $_SESSION['user_type'] != 'buyer') {
 
 $user_id = $_SESSION['user_id'];
 
-// Fetch all orders
-$stmt = $conn->prepare("SELECT orders.*, products.name AS product_name FROM orders 
-                        JOIN products ON orders.product_id = products.product_id 
+// Fetch all orders with their items
+$stmt = $conn->prepare("SELECT orders.*, order_items.quantity, order_items.price, products.name AS product_name 
+                        FROM orders 
+                        JOIN order_items ON orders.order_id = order_items.order_id 
+                        JOIN products ON order_items.product_id = products.product_id 
                         WHERE orders.user_id = ? 
                         ORDER BY orders.created_at DESC");
 $stmt->execute([$user_id]);
 $orders = $stmt->fetchAll();
 
-// Fetch delivered orders
-$stmt = $conn->prepare("SELECT orders.*, products.name AS product_name FROM orders 
-                        JOIN products ON orders.product_id = products.product_id 
+// Fetch delivered orders with their items
+$stmt = $conn->prepare("SELECT orders.*, order_items.quantity, order_items.price, products.name AS product_name 
+                        FROM orders 
+                        JOIN order_items ON orders.order_id = order_items.order_id 
+                        JOIN products ON order_items.product_id = products.product_id 
                         WHERE orders.user_id = ? AND orders.status = 'Delivered' 
                         ORDER BY orders.created_at DESC");
 $stmt->execute([$user_id]);
@@ -33,7 +37,7 @@ $delivered_orders = $stmt->fetchAll();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Orders - Shazada.com</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../bootstrap/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -73,7 +77,8 @@ $delivered_orders = $stmt->fetchAll();
                         <th>Order ID</th>
                         <th>Product</th>
                         <th>Quantity</th>
-                        <th>Total Price</th>
+                        <th>Price</th>
+                        <th>Total</th>
                         <th>Status</th>
                         <th>Order Date</th>
                         <th>Actions</th>
@@ -85,7 +90,8 @@ $delivered_orders = $stmt->fetchAll();
                             <td><?php echo $order['order_id']; ?></td>
                             <td><?php echo htmlspecialchars($order['product_name']); ?></td>
                             <td><?php echo $order['quantity']; ?></td>
-                            <td>₱<?php echo number_format($order['total_price'], 2); ?></td>
+                            <td>₱<?php echo number_format($order['price'], 2); ?></td>
+                            <td>₱<?php echo number_format($order['price'] * $order['quantity'], 2); ?></td>
                             <td><?php echo $order['status']; ?></td>
                             <td><?php echo date('M d, Y h:i A', strtotime($order['created_at'])); ?></td>
                             <td>
@@ -107,7 +113,8 @@ $delivered_orders = $stmt->fetchAll();
                         <th>Order ID</th>
                         <th>Product</th>
                         <th>Quantity</th>
-                        <th>Total Price</th>
+                        <th>Price</th>
+                        <th>Total</th>
                         <th>Order Date</th>
                         <th>Delivered On</th>
                         <th>Actions</th>
@@ -119,7 +126,8 @@ $delivered_orders = $stmt->fetchAll();
                             <td><?php echo $order['order_id']; ?></td>
                             <td><?php echo htmlspecialchars($order['product_name']); ?></td>
                             <td><?php echo $order['quantity']; ?></td>
-                            <td>₱<?php echo number_format($order['total_price'], 2); ?></td>
+                            <td>₱<?php echo number_format($order['price'], 2); ?></td>
+                            <td>₱<?php echo number_format($order['price'] * $order['quantity'], 2); ?></td>
                             <td><?php echo date('M d, Y h:i A', strtotime($order['created_at'])); ?></td>
                             <td><?php echo date('M d, Y h:i A', strtotime($order['updated_at'])); ?></td>
                             <td>
@@ -132,6 +140,6 @@ $delivered_orders = $stmt->fetchAll();
         <?php endif; ?>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

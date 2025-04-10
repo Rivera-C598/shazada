@@ -8,7 +8,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['user_type'] != 'admin') {
     exit();
 }
 
-// Fetch all concerns
+// Fetch all concerns with attached orders
 $stmt = $conn->query("SELECT customer_concerns.*, users.username FROM customer_concerns 
                       JOIN users ON customer_concerns.user_id = users.user_id 
                       ORDER BY customer_concerns.created_at DESC");
@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Customer Concerns - Shazada.com</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../bootstrap/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -98,11 +98,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             </form>
                         <?php endif; ?>
                     </div>
+                    <!-- Display attached orders -->
+                    <?php
+                    $stmt = $conn->prepare("SELECT orders.* FROM concern_orders 
+                                            JOIN orders ON concern_orders.order_id = orders.order_id 
+                                            WHERE concern_orders.concern_id = ?");
+                    $stmt->execute([$concern['concern_id']]);
+                    $attached_orders = $stmt->fetchAll();
+                    ?>
+                    <?php if (!empty($attached_orders)): ?>
+                        <div class="mt-3">
+                            <h6>Attached Orders:</h6>
+                            <ul>
+                                <?php foreach ($attached_orders as $order): ?>
+                                    <li>Order #<?php echo $order['order_id']; ?> - <?php echo htmlspecialchars($order['status']); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
                 </div>
             <?php endforeach; ?>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

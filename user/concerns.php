@@ -15,13 +15,30 @@ $stmt = $conn->prepare("SELECT * FROM customer_concerns WHERE user_id = ? ORDER 
 $stmt->execute([$user_id]);
 $concerns = $stmt->fetchAll();
 
+// Fetch user's orders
+$stmt = $conn->prepare("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC");
+$stmt->execute([$user_id]);
+$orders = $stmt->fetchAll();
+
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $message = $_POST['message'];
+    $selected_orders = $_POST['orders'] ?? []; // Get selected orders
 
     if (!empty($message)) {
+        // Insert the concern into the database
         $stmt = $conn->prepare("INSERT INTO customer_concerns (user_id, message) VALUES (?, ?)");
         $stmt->execute([$user_id, $message]);
+        $concern_id = $conn->lastInsertId(); // Get the ID of the newly inserted concern
+
+        // Attach selected orders to the concern
+        if (!empty($selected_orders)) {
+            foreach ($selected_orders as $order_id) {
+                $stmt = $conn->prepare("INSERT INTO concern_orders (concern_id, order_id) VALUES (?, ?)");
+                $stmt->execute([$concern_id, $order_id]);
+            }
+        }
+
         header("Location: concerns.php");
         exit();
     } else {
@@ -36,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Customer Concerns - Shazada.com</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../bootstrap/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -72,6 +89,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <label for="message" class="form-label">Your Message</label>
                 <textarea class="form-control" id="message" name="message" rows="3" required></textarea>
             </div>
+            <div class="mb-3">
+                <button type="button" id="toggleOrders" class="btn btn-secondary btn-sm">Attach Orders</button>
+                <div id="orderSelection" class="mt-2" style="display: none;">
+                    <select class="form-select" id="orders" name="orders[]" multiple>
+                        <?php foreach ($orders as $order): ?>
+                            <option value="<?php echo $order['order_id']; ?>">
+                                Order #<?php echo $order['order_id']; ?> - <?php echo htmlspecialchars($order['status']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="form-text text-muted">Hold Ctrl (Windows) or Command (Mac) to select multiple orders.</small>
+                    <button type="button" id="clearSelection" class="btn btn-secondary btn-sm mt-2">Clear Selection</button>
+                </div>
+            </div>
             <button type="submit" class="btn btn-primary">Send Message</button>
         </form>
 
@@ -94,12 +125,55 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 </div>
                             <?php endif; ?>
                         </div>
+                        <!-- Display attached orders -->
+                        <?php
+                        $stmt = $conn->prepare("SELECT orders.* FROM concern_orders 
+                                                JOIN orders ON concern_orders.order_id = orders.order_id 
+                                                WHERE concern_orders.concern_id = ?");
+                        $stmt->execute([$concern['concern_id']]);
+                        $attached_orders = $stmt->fetchAll();
+                        ?>
+                        <?php if (!empty($attached_orders)): ?>
+                            <div class="mt-3">
+                                <h6>Attached Orders:</h6>
+                                <ul>
+                                    <?php foreach ($attached_orders as $order): ?>
+                                        <li>Order #<?php echo $order['order_id']; ?> - <?php echo htmlspecialchars($order['status']); ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Toggle order selection dropdown
+        document.getElementById('toggleOrders').addEventListener('click', function() {
+            const orderSelection = document.getElementById('orderSelection');
+            if (orderSelection.style.display === 'none') {
+                orderSelection.style.display = 'block'; // Show the dropdown
+            } else {
+                orderSelection.style.display = 'none'; // Hide the dropdown
+                clearSelection(); // Unselect all orders when hidden
+            }
+        });
+
+        // Clear selection button
+        document.getElementById('clearSelection').addEventListener('click', clearSelection);
+
+        // Function to clear all selected orders
+        function clearSelection() {
+            const orderSelect = document.getElementById('orders');
+            for (let i = 0; i < orderSelect.options.length; i++) {
+                orderSelect.options[i].selected = false; // Unselect all options
+            }
+        }
+
+        
+    </script>
 </body>
 </html>

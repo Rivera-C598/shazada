@@ -8,8 +8,38 @@ if (!isset($_SESSION['user_id']) || $_SESSION['user_type'] != 'buyer') {
     exit();
 }
 
-// Redirect if cart is empty
-if (empty($_SESSION['cart'])) {
+// Redirect if no items are selected
+if (!isset($_SESSION['selected_items']) || empty($_SESSION['selected_items'])) {
+    header("Location: cart.php");
+    exit();
+}
+
+// Fetch selected items from the cart
+$selected_items = $_SESSION['selected_items'];
+$cart_items = [];
+$total_cart_price = 0;
+
+foreach ($selected_items as $product_id) {
+    if (isset($_SESSION['cart'][$product_id])) {
+        // Check if the product exists in the database
+        $stmt = $conn->prepare("SELECT * FROM products WHERE product_id = ?");
+        $stmt->execute([$product_id]);
+        $product = $stmt->fetch();
+
+        if ($product) {
+            // Add the product to the cart_items array if it exists
+            $cart_items[$product_id] = $_SESSION['cart'][$product_id];
+            $total_cart_price += $_SESSION['cart'][$product_id]['price'] * $_SESSION['cart'][$product_id]['quantity'];
+        } else {
+            // Remove the product from the cart if it no longer exists
+            unset($_SESSION['cart'][$product_id]);
+            $_SESSION['error'] = "One or more products in your cart are no longer available. They have been removed.";
+        }
+    }
+}
+
+// Redirect if the cart is empty after validation
+if (empty($cart_items)) {
     header("Location: cart.php");
     exit();
 }
@@ -23,6 +53,22 @@ $addresses = $stmt->fetchAll();
 // Fetch logistics partners
 $stmt = $conn->query("SELECT * FROM logistics_partners");
 $logistics = $stmt->fetchAll();
+
+// ==================== VALIDATION ====================
+// Check if the user has delivery addresses
+if (empty($addresses)) {
+    $_SESSION['error'] = "Please add a delivery address before proceeding to checkout.";
+    header("Location: cart.php");
+    exit();
+}
+
+// Check if logistics partners are available
+if (empty($logistics)) {
+    $_SESSION['error'] = "No logistics partners available. Please contact support.";
+    header("Location: cart.php");
+    exit();
+}
+// ==================== END VALIDATION ====================
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -39,28 +85,71 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $stmt->execute([$logistics_id]);
     $logistic = $stmt->fetch();
 
-    // Insert orders for each item in the cart
-    foreach ($_SESSION['cart'] as $product_id => $item) {
-        $total_price = $item['price'] * $item['quantity'] + $logistic['shipping_fee']; // Include shipping fee
+    // Calculate total price including shipping fee
+    $total_price = $total_cart_price + $logistic['shipping_fee'];
 
-        $stmt = $conn->prepare("INSERT INTO orders (user_id, product_id, quantity, total_price, status, payment_method, logistics_partner, delivery_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$user_id, $product_id, $item['quantity'], $total_price, 'To be packed', $payment_method, $logistic['name'], json_encode($address)]);
+    // Insert a single order for all items
+    $stmt = $conn->prepare("INSERT INTO orders (user_id, total_price, status, payment_method, logistics_partner, delivery_address) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$user_id, $total_price, 'To be packed', $payment_method, $logistic['name'], json_encode($address)]);
+    $order_id = $conn->lastInsertId();
 
-        // Update product stock
-        $stmt = $conn->prepare("SELECT stock FROM products WHERE product_id = ?");
+    // Insert each item into the order_items table
+    foreach ($cart_items as $product_id => $item) {
+        // Check if the product still exists before inserting
+        $stmt = $conn->prepare("SELECT * FROM products WHERE product_id = ?");
         $stmt->execute([$product_id]);
         $product = $stmt->fetch();
 
-        $new_stock = $product['stock'] - $item['quantity'];
-        $stmt = $conn->prepare("UPDATE products SET stock = ? WHERE product_id = ?");
-        $stmt->execute([$new_stock, $product_id]);
+        if ($product) {
+            // Insert into order_items
+            $stmt = $conn->prepare("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$order_id, $product_id, $item['quantity'], $item['price']]);
+
+            // Update product stock
+            $new_stock = $product['stock'] - $item['quantity'];
+            $stmt = $conn->prepare("UPDATE products SET stock = ? WHERE product_id = ?");
+            $stmt->execute([$new_stock, $product_id]);
+        } else {
+            // Handle the case where the product no longer exists
+            $_SESSION['error'] = "One or more products in your order are no longer available. Please review your cart.";
+            header("Location: cart.php");
+            exit();
+        }
     }
 
-    // Clear the cart
+    // Store order details in the session for the confirmation page
+    $_SESSION['order_details'] = [
+        'order_id' => $order_id,
+        'items' => $cart_items,
+        'total_cart_price' => $total_cart_price,
+        'shipping_fee' => $logistic['shipping_fee'],
+        'total_price' => $total_price,
+        'address' => $address['home_address'] . ', ' . $address['city'] . ', ' . $address['province'] . ', ' . $address['country'],
+        'logistic' => $logistic['name'],
+        'payment_method' => $payment_method
+    ];
+
+    // Simulate sending an email
+    $subject = "Order Confirmation";
+    $message = "Thank you for shopping with Shazada.com!\n\n";
+    $message .= "Order Details:\n";
+    foreach ($cart_items as $item) {
+        $message .= "- " . $item['name'] . " (₱" . number_format($item['price'], 2) . " x " . $item['quantity'] . ")\n";
+    }
+    $message .= "Total Price: ₱" . number_format($total_price, 2) . "\n";
+    $message .= "Shipping Address: " . $address['home_address'] . ', ' . $address['city'] . ', ' . $address['province'] . ', ' . $address['country'] . "\n";
+    $message .= "Logistics Partner: " . $logistic['name'] . "\n";
+    $message .= "Payment Method: " . $payment_method . "\n";
+
+    // Uncomment to send real emails
+    // mail($_SESSION['email'], $subject, $message);
+
+    // Clear the selected items and cart
+    unset($_SESSION['selected_items']);
     unset($_SESSION['cart']);
 
-    // Redirect to orders page
-    header("Location: orders.php");
+    // Redirect to order confirmation page
+    header("Location: order_confirmation.php");
     exit();
 }
 ?>
@@ -71,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Checkout - Shazada.com</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../bootstrap/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -101,6 +190,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     <div class="container mt-5">
         <h1>Checkout</h1>
+        <?php if (isset($_SESSION['error'])): ?>
+            <div class="alert alert-danger"><?php echo $_SESSION['error']; unset($_SESSION['error']); ?></div>
+        <?php endif; ?>
         <div class="row">
             <div class="col-md-8">
                 <h3>Order Summary</h3>
@@ -114,17 +206,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php
-                        $total_cart_price = 0;
-                        foreach ($_SESSION['cart'] as $product_id => $item):
-                            $total_price = $item['price'] * $item['quantity'];
-                            $total_cart_price += $total_price;
-                        ?>
+                        <?php foreach ($cart_items as $product_id => $item): ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($item['name']); ?></td>
                                 <td>₱<?php echo number_format($item['price'], 2); ?></td>
                                 <td><?php echo $item['quantity']; ?></td>
-                                <td>₱<?php echo number_format($total_price, 2); ?></td>
+                                <td>₱<?php echo number_format($item['price'] * $item['quantity'], 2); ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -180,6 +267,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

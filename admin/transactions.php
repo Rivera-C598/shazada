@@ -10,11 +10,12 @@ if (!isset($_SESSION['user_id']) || $_SESSION['user_type'] != 'admin') {
 
 // Handle filter
 $filter = isset($_GET['filter']) ? $_GET['filter'] : 'all';
-$query = "SELECT transactions.*, users.username, orders.product_id, products.name AS product_name 
+$query = "SELECT transactions.*, users.username, order_items.product_id, products.name AS product_name 
           FROM transactions 
           JOIN orders ON transactions.order_id = orders.order_id 
           JOIN users ON orders.user_id = users.user_id 
-          JOIN products ON orders.product_id = products.product_id";
+          JOIN order_items ON orders.order_id = order_items.order_id 
+          JOIN products ON order_items.product_id = products.product_id";
 
 if ($filter == 'cod') {
     $query .= " WHERE transactions.payment_method = 'COD'";
@@ -32,7 +33,7 @@ $transactions = $stmt->fetchAll();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Transactions - Shazada.com</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../bootstrap/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -109,6 +110,6 @@ $transactions = $stmt->fetchAll();
         </table>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

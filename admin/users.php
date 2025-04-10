@@ -17,8 +17,11 @@ if (isset($_GET['delete'])) {
     exit();
 }
 
-// Fetch all users
-$stmt = $conn->query("SELECT * FROM users ORDER BY created_at DESC");
+// Handle search
+$search = isset($_GET['search']) ? $_GET['search'] : '';
+$query = "SELECT * FROM users WHERE username LIKE :search OR email LIKE :search OR user_type LIKE :search ORDER BY created_at DESC";
+$stmt = $conn->prepare($query);
+$stmt->execute(['search' => "%$search%"]);
 $users = $stmt->fetchAll();
 ?>
 
@@ -28,7 +31,12 @@ $users = $stmt->fetchAll();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Users - Shazada.com</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .clickable-row {
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
@@ -67,6 +75,14 @@ $users = $stmt->fetchAll();
 
     <div class="container mt-5">
         <h1>Users</h1>
+        <!-- Search Bar -->
+        <form method="GET" class="mb-3">
+            <div class="input-group">
+                <input type="text" name="search" class="form-control" placeholder="Search by username, email, or user type" value="<?php echo htmlspecialchars($search); ?>">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </div>
+        </form>
+
         <table class="table table-bordered">
             <thead>
                 <tr>
@@ -78,12 +94,11 @@ $users = $stmt->fetchAll();
             </thead>
             <tbody>
                 <?php foreach ($users as $user): ?>
-                    <tr>
+                    <tr class="clickable-row" onclick="window.location.href='user_details.php?id=<?php echo $user['user_id']; ?>'">
                         <td><?php echo htmlspecialchars($user['username']); ?></td>
                         <td><?php echo htmlspecialchars($user['email']); ?></td>
                         <td><?php echo htmlspecialchars($user['user_type']); ?></td>
                         <td>
-                            <a href="edit_user.php?id=<?php echo $user['user_id']; ?>" class="btn btn-warning btn-sm">Edit</a>
                             <a href="users.php?delete=<?php echo $user['user_id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this user?')">Delete</a>
                         </td>
                     </tr>
@@ -92,6 +107,6 @@ $users = $stmt->fetchAll();
         </table>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
